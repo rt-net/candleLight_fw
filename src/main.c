@@ -136,11 +136,13 @@ int main(void)
 		if (USBD_GS_CAN_DfuDetachRequested(&hUSB)) {
 			dfu_run_bootloader();
 		}
+#if defined(BOARD_WeActStudio_USB2CANFDV1)
 		const struct BoardChannelConfig *channel_config0 = &config.channels[0];
 		const struct LEDConfig *led_config0 = channel_config0->leds;
 
 		// reset READY LED to ON state
 		HAL_GPIO_WritePin(led_config0[LED_READY].port, led_config0[LED_READY].pin, GPIO_PIN_RESET);
+#endif
 	}
 }
 
