@@ -33,8 +33,10 @@
 #include "usbd_gs_can.h"
 
 /*
- * LED_RX   PA3
- * LEX_TX   PA4
+ * LED1_RX  PD2   (channel 0 / FDCAN1)
+ * LED1_TX  PD3   (channel 0 / FDCAN1)
+ * LED2_RX  PA3   (channel 1 / FDCAN2)
+ * LED2_TX  PA4   (channel 1 / FDCAN2)
  * UART_TX  PA9
  * UART_RX  PA10
  * USB_P    PA12
@@ -47,15 +49,20 @@
  * CAN2_S   PB2
  */
 
-#define LEDRX_GPIO_Port	  GPIOA
-#define LEDRX_Pin		  GPIO_PIN_3
-#define LEDRX_Mode		  GPIO_MODE_OUTPUT_PP
-#define LEDRX_Active_High 1
+/* channel 0 (FDCAN1) LEDs */
+#define LED1RX_GPIO_Port  GPIOD
+#define LED1RX_Pin		  GPIO_PIN_2
+#define LED1TX_GPIO_Port  GPIOD
+#define LED1TX_Pin		  GPIO_PIN_3
 
-#define LEDTX_GPIO_Port	  GPIOA
-#define LEDTX_Pin		  GPIO_PIN_4
-#define LEDTX_Mode		  GPIO_MODE_OUTPUT_PP
-#define LEDTX_Active_High 1
+/* channel 1 (FDCAN2) LEDs */
+#define LED2RX_GPIO_Port  GPIOA
+#define LED2RX_Pin		  GPIO_PIN_3
+#define LED2TX_GPIO_Port  GPIOA
+#define LED2TX_Pin		  GPIO_PIN_4
+
+#define LED_Mode		  GPIO_MODE_OUTPUT_PP
+#define LED_Active_High	  1
 
 static void candlelightfd_setup(USBD_GS_CAN_HandleTypeDef *hcan)
 {
@@ -69,20 +76,25 @@ static void candlelightfd_setup(USBD_GS_CAN_HandleTypeDef *hcan)
 #endif
 	__HAL_RCC_GPIOD_CLK_ENABLE();
 
-	/* LEDs */
-	HAL_GPIO_WritePin(LEDRX_GPIO_Port, LEDRX_Pin, GPIO_INIT_STATE(LEDRX_Active_High));
-	GPIO_InitStruct.Pin = LEDRX_Pin;
-	GPIO_InitStruct.Mode = LEDRX_Mode;
+	/* channel 0 LEDs (LED1: RX=PD2, TX=PD3) */
+	HAL_GPIO_WritePin(LED1RX_GPIO_Port, LED1RX_Pin, GPIO_INIT_STATE(LED_Active_High));
+	HAL_GPIO_WritePin(LED1TX_GPIO_Port, LED1TX_Pin, GPIO_INIT_STATE(LED_Active_High));
+	GPIO_InitStruct.Pin = LED1RX_Pin | LED1TX_Pin;
+	GPIO_InitStruct.Mode = LED_Mode;
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-	HAL_GPIO_Init(LEDRX_GPIO_Port, &GPIO_InitStruct);
+	HAL_GPIO_Init(LED1RX_GPIO_Port, &GPIO_InitStruct);
 
-	HAL_GPIO_WritePin(LEDTX_GPIO_Port, LEDTX_Pin, GPIO_INIT_STATE(LEDTX_Active_High));
-	GPIO_InitStruct.Pin = LEDTX_Pin;
-	GPIO_InitStruct.Mode = LEDTX_Mode;
+#if NUM_CAN_CHANNEL == 2
+	/* channel 1 LEDs (LED2: RX=PA3, TX=PA4) */
+	HAL_GPIO_WritePin(LED2RX_GPIO_Port, LED2RX_Pin, GPIO_INIT_STATE(LED_Active_High));
+	HAL_GPIO_WritePin(LED2TX_GPIO_Port, LED2TX_Pin, GPIO_INIT_STATE(LED_Active_High));
+	GPIO_InitStruct.Pin = LED2RX_Pin | LED2TX_Pin;
+	GPIO_InitStruct.Mode = LED_Mode;
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-	HAL_GPIO_Init(LEDTX_GPIO_Port, &GPIO_InitStruct);
+	HAL_GPIO_Init(LED2RX_GPIO_Port, &GPIO_InitStruct);
+#endif
 
 	/* Setup transceiver silent pin */
 	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET);
@@ -136,14 +148,14 @@ const struct board_config config = {
 		.interface = FDCAN1,
 		.leds = {
 			[LED_RX] = {
-				.port = LEDRX_GPIO_Port,
-				.pin = LEDRX_Pin,
-				.active_high = LEDRX_Active_High,
+				.port = LED1RX_GPIO_Port,
+				.pin = LED1RX_Pin,
+				.active_high = LED_Active_High,
 			},
 			[LED_TX] = {
-				.port = LEDTX_GPIO_Port,
-				.pin = LEDTX_Pin,
-				.active_high = LEDTX_Active_High,
+				.port = LED1TX_GPIO_Port,
+				.pin = LED1TX_Pin,
+				.active_high = LED_Active_High,
 			},
 		},
 	},
@@ -152,14 +164,14 @@ const struct board_config config = {
 		.interface = FDCAN2,
 		.leds = {
 			[LED_RX] = {
-				.port = LEDRX_GPIO_Port,
-				.pin = LEDRX_Pin,
-				.active_high = LEDRX_Active_High,
+				.port = LED2RX_GPIO_Port,
+				.pin = LED2RX_Pin,
+				.active_high = LED_Active_High,
 			},
 			[LED_TX] = {
-				.port = LEDTX_GPIO_Port,
-				.pin = LEDTX_Pin,
-				.active_high = LEDTX_Active_High,
+				.port = LED2TX_GPIO_Port,
+				.pin = LED2TX_Pin,
+				.active_high = LED_Active_High,
 			},
 		},
 	},

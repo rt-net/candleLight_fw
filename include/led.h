@@ -68,6 +68,7 @@ typedef struct {
 	uint32_t sequence_step;
 	uint32_t t_sequence_next;
 	int32_t seq_num_repeat;
+	uint32_t next_update;
 
 	led_state_t led_state[LED_MAX];
 } led_data_t;
