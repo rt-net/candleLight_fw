@@ -64,6 +64,12 @@
 #define LED_Mode		  GPIO_MODE_OUTPUT_PP
 #define LED_Active_High	  1
 
+#ifdef CONFIG_BRAKE
+/* E-STOP / BRAKE input (PB5, fail-safe N.C., asserted high) */
+#define BRAKE_GPIO_Port	  GPIOB
+#define BRAKE_Pin		  GPIO_PIN_5
+#endif
+
 static void candlelightfd_setup(USBD_GS_CAN_HandleTypeDef *hcan)
 {
 	GPIO_InitTypeDef GPIO_InitStruct;
@@ -71,7 +77,7 @@ static void candlelightfd_setup(USBD_GS_CAN_HandleTypeDef *hcan)
 	UNUSED(hcan);
 
 	__HAL_RCC_GPIOA_CLK_ENABLE();
-#if NUM_CAN_CHANNEL == 2
+#if NUM_CAN_CHANNEL == 2 || defined(CONFIG_BRAKE)
 	__HAL_RCC_GPIOB_CLK_ENABLE();
 #endif
 	__HAL_RCC_GPIOD_CLK_ENABLE();
@@ -103,6 +109,16 @@ static void candlelightfd_setup(USBD_GS_CAN_HandleTypeDef *hcan)
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
 	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+#ifdef CONFIG_BRAKE
+	/* BRAKE / E-STOP input PB5: fail-safe N.C. contact holds it LOW in normal
+	 * operation; pressing it (or a disconnect) lets R11 10k pull it HIGH = asserted */
+	GPIO_InitStruct.Pin = BRAKE_Pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	HAL_GPIO_Init(BRAKE_GPIO_Port, &GPIO_InitStruct);
+#endif
 
 #if NUM_CAN_CHANNEL == 2
 	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_RESET);
@@ -174,6 +190,12 @@ const struct board_config config = {
 				.active_high = LED_Active_High,
 			},
 		},
+	},
+#endif
+#ifdef CONFIG_BRAKE
+	.brake = {
+		.button_port = BRAKE_GPIO_Port,
+		.button_pin = BRAKE_Pin,
 	},
 #endif
 };

@@ -48,6 +48,13 @@ struct board_channel_config {
 	struct led_config leds[LED_MAX];
 };
 
+#ifdef CONFIG_BRAKE
+struct brake_config {
+	GPIO_TypeDef *button_port;	/* E-STOP / BRAKE input, asserted high (fail-safe N.C.) */
+	uint16_t button_pin;
+};
+#endif
+
 struct board_config {
 	struct board_channel_config channel[NUM_CAN_CHANNEL];
 	void (*setup)(USBD_GS_CAN_HandleTypeDef *hcan);
@@ -56,6 +63,9 @@ struct board_config {
 #endif
 #ifdef CONFIG_TERMINATION
 	void (*termination_set)(can_data_t *channel, enum gs_can_termination_state state);
+#endif
+#ifdef CONFIG_BRAKE
+	struct brake_config brake;
 #endif
 };
 

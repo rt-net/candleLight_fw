@@ -474,6 +474,7 @@ THE SOFTWARE.
 	#define CAN_CLOCK_SPEED			 40000000
 	#define NUM_CAN_CHANNEL			 2
 	#define CONFIG_CANFD			 1
+	#define CONFIG_BRAKE			 1
 
 #elif defined(BOARD_nucleo_g0b1re)
 	#define USBD_PRODUCT_STRING_FS	 "NUCLEO-G0B1RE gs_usb"
