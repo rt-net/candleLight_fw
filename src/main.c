@@ -133,9 +133,9 @@ int main(void)
 			CAN_HandleError(&hGS_CAN, channel);
 
 #ifdef CONFIG_BRAKE
-			/* while E-STOP is pressed brake_task() holds all CAN Tx/Rx LEDs
-			 * on; skip the normal update so it isn't overridden */
-			if (!brake_is_active())
+			/* while the E-STOP is pressed brake_task() holds all CAN Tx/Rx LEDs
+			 * on, so run the normal update only while released */
+			if (!brake_is_engaged())
 #endif
 				led_update(&channel->leds);
 		}

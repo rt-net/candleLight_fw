@@ -50,8 +50,10 @@ struct board_channel_config {
 
 #ifdef CONFIG_BRAKE
 struct brake_config {
-	GPIO_TypeDef *button_port;	/* E-STOP / BRAKE input, asserted high (fail-safe N.C.) */
+	GPIO_TypeDef *button_port;	/* E-STOP / BRAKE input (fail-safe N.C.: released=LOW, pressed=HIGH) */
 	uint16_t button_pin;
+	GPIO_TypeDef *led_port;		/* LED_BRAKE indicator, active high */
+	uint16_t led_pin;
 };
 #endif
 
