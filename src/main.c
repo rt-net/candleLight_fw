@@ -114,13 +114,18 @@ int main(void)
 
 	while (1) {
 #ifdef CONFIG_BRAKE
-		brake_task();
+		brake_task(&hGS_CAN);
+
+		/* while the E-STOP is engaged the firmware drives the motors (damping);
+		 * stop forwarding host frames so they do not fight the brake command */
+		if (!brake_is_engaged())
 #endif
+		{
+			for (unsigned int i = 0; i < ARRAY_SIZE(hGS_CAN.channels); i++) {
+				can_data_t *channel = &hGS_CAN.channels[i];
 
-		for (unsigned int i = 0; i < ARRAY_SIZE(hGS_CAN.channels); i++) {
-			can_data_t *channel = &hGS_CAN.channels[i];
-
-			CAN_SendFrame(&hGS_CAN, channel);
+				CAN_SendFrame(&hGS_CAN, channel);
+			}
 		}
 
 		USBD_GS_CAN_ReceiveFromHost(&hUSB);
@@ -132,12 +137,11 @@ int main(void)
 			CAN_ReceiveFrame(&hGS_CAN, channel);
 			CAN_HandleError(&hGS_CAN, channel);
 
-#ifdef CONFIG_BRAKE
-			/* while the E-STOP is pressed brake_task() holds all CAN Tx/Rx LEDs
-			 * on, so run the normal update only while released */
-			if (!brake_is_engaged())
+#ifndef CONFIG_BRAKE
+			/* on a brake board the CAN Tx/Rx LEDs are the E-STOP indicator,
+			 * driven by brake_task(); elsewhere show normal CAN activity */
+			led_update(&channel->leds);
 #endif
-				led_update(&channel->leds);
 		}
 
 		if (USBD_GS_CAN_DfuDetachRequested(&hUSB)) {

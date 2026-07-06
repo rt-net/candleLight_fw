@@ -31,24 +31,25 @@
 
 #include <stdbool.h>
 
+#include "usbd_gs_can.h"
+
 /* Reset state (call once during start-up). */
 void brake_init(void);
 
 /*
- * Poll the E-STOP / BRAKE input (call once per main-loop iteration) and drive
- * the indicators:
- *   - pressed (E-STOP engaged): CAN Tx/Rx LEDs on,  LED_BRAKE on
- *   - released (idle):          CAN Tx/Rx LEDs off, LED_BRAKE off
- * (CAN Tx/Rx: 2 LEDs on a 1-channel build, 4 on a 2-channel build. "off" while
- * released means the normal led_update() state, i.e. off when the CAN
- * interface is down, normal activity indication when it is up.)
+ * Poll the E-STOP / BRAKE input (call once per main-loop iteration). While the
+ * E-STOP is pressed this:
+ *   - lights all CAN Tx/Rx LEDs and LED_BRAKE,
+ *   - sends the MIT-mode max-damping command (Kp=0, Kd=max) to the motors,
+ *     distributed over the CAN channels (1 ch: ids 1..12; 2 ch: 1..6 and 7..12),
+ *     repeated every BRAKE_RESEND_MS to hold the brake.
+ * Releasing it restores normal operation.
  */
-void brake_task(void);
+void brake_task(USBD_GS_CAN_HandleTypeDef *hcan);
 
 /*
- * True while the E-STOP is pressed. The main loop runs led_update() only while
- * released; while pressed it is skipped so brake_task()'s "CAN LEDs on"
- * override is kept.
+ * True while the E-STOP is pressed. While engaged the main loop must skip
+ * host->CAN forwarding and led_update() (the firmware drives the bus and LEDs).
  */
 bool brake_is_engaged(void);
 

@@ -31,8 +31,13 @@
 #include <stdint.h>
 
 #include "board.h"
+#include "can.h"
+#include "can_common.h"
+#include "gs_usb.h"
 #include "hal_include.h"
 #include "led.h"
+
+/* --- E-STOP input --- */
 
 /* Consecutive samples required before a button state change is accepted. */
 #ifndef BRAKE_DEBOUNCE_SAMPLES
@@ -40,31 +45,80 @@
 #endif
 
 /*
- * PB5 level that means the E-STOP is pressed/engaged. This is a fail-safe
- * normally-closed (B-contact) input: the board pulls BRAKE up via R11 and the
- * closed contact ties it to GND while released, so
- *   released (normal) = LOW,  pressed / broken wire / unplugged = HIGH.
- * Override in config.h if a board wires the E-STOP the other way round.
+ * PB5 level that means the E-STOP is pressed. Fail-safe normally-closed
+ * (B-contact): released = LOW (contact ties BRAKE to GND), pressed / broken
+ * wire / unplugged = HIGH (R11 pull-up). Override in config.h to invert.
  */
 #ifndef BRAKE_PRESSED_STATE
 #define BRAKE_PRESSED_STATE GPIO_PIN_SET
 #endif
 
+/* --- motor damping command (T-Motor AK-series V3, MIT "Force Control" mode) ---
+ *
+ * Extended CAN id = CAN_EFF_FLAG | (mode << 8) | motor_id, mode 8 = force
+ * control. The 8-byte payload packs KP(12) KD(12) Pos(16) Speed(12) Torque(12).
+ * The default below encodes KP=0, KD=MAX, Pos=Speed=Torque=0 -> pure max-damping
+ * brake (tau = -Kd*v). Range-independent, verified against the CubeMars manual
+ * (4.2 Force Control) and the quadruped_control TmotorV3 driver.
+ */
+#ifndef BRAKE_MOTOR_CMD
+#define BRAKE_MOTOR_CMD { 0x00, 0x0F, 0xFF, 0x7F, 0xFF, 0x7F, 0xF7, 0xFF }
+#endif
+
+/* Force-control mode id in the extended CAN id. */
+#ifndef BRAKE_CAN_MODE
+#define BRAKE_CAN_MODE 8
+#endif
+
+/*
+ * Total motors (CAN ids 1..N), split evenly over the CAN channels:
+ *   1 channel  -> ch0 brakes ids 1..N
+ *   2 channels -> ch0 brakes 1..N/2, ch1 brakes N/2+1..N
+ */
+#ifndef BRAKE_NUM_MOTORS
+#define BRAKE_NUM_MOTORS 12
+#endif
+
+/* Bounded busy-retry per frame while the TX FIFO is full (never hangs). */
+#ifndef BRAKE_SEND_TRIES
+#define BRAKE_SEND_TRIES 0xFFFFu
+#endif
+
+/*
+ * Re-send the damping command every N ms while pressed. MIT-mode motors expect
+ * a continuous command, so a one-shot could time out and release the brake.
+ * Set to 0 for a single burst on the press edge only.
+ */
+#ifndef BRAKE_RESEND_MS
+#define BRAKE_RESEND_MS 5
+#endif
+
+static const uint8_t brake_motor_cmd[8] = BRAKE_MOTOR_CMD;
+
 static bool brake_engaged;
 static uint8_t brake_debounce;
+static uint32_t brake_next_send;
 
 static bool brake_input_pressed(void)
 {
 	const struct brake_config *cfg = &config.brake;
 
-	return HAL_GPIO_ReadPin(cfg->button_port, cfg->button_pin) == BRAKE_PRESSED_STATE;
+	/* wired E-STOP (BRAKE) */
+	if (HAL_GPIO_ReadPin(cfg->button_port, cfg->button_pin) == BRAKE_PRESSED_STATE) {
+		return true;
+	}
+
+	/* wireless E-STOP (BRAKE_W), if the board wires one (e.g. Mujina PB4) */
+	if (cfg->wl_button_port != NULL &&
+		HAL_GPIO_ReadPin(cfg->wl_button_port, cfg->wl_button_pin) == BRAKE_PRESSED_STATE) {
+		return true;
+	}
+
+	return false;
 }
 
-/*
- * Drive every CAN Tx/Rx LED. Iterates the configured channels, so it covers
- * 2 LEDs on a 1-channel build and 4 LEDs on a 2-channel build automatically
- * (keyed on NUM_CAN_CHANNEL).
- */
+/* --- indicators --- */
+
 static void brake_set_can_leds(bool on)
 {
 	for (unsigned int i = 0; i < NUM_CAN_CHANNEL; i++) {
@@ -78,7 +132,6 @@ static void brake_set_can_leds(bool on)
 	}
 }
 
-/* LED_BRAKE indicator (active high). */
 static void brake_set_led_brake(bool on)
 {
 	const struct brake_config *cfg = &config.brake;
@@ -87,26 +140,75 @@ static void brake_set_led_brake(bool on)
 					  on ? GPIO_PIN_SET : GPIO_PIN_RESET);
 }
 
-/* Apply the indicators for the current engaged/idle state. */
-static void brake_apply(void)
+static void brake_apply_leds(void)
 {
-	/* Both the CAN Tx/Rx LEDs and LED_BRAKE light while the E-STOP is pressed. */
+	/*
+	 * released/idle -> CAN Tx/Rx LEDs ON,  LED_BRAKE OFF
+	 * pressed       -> CAN Tx/Rx LEDs OFF, LED_BRAKE ON
+	 * Forced in both states (independent of the CAN interface being up), so on
+	 * a brake board the CAN Tx/Rx LEDs act purely as the E-STOP indicator.
+	 */
 	brake_set_led_brake(brake_engaged);
+	brake_set_can_leds(!brake_engaged);
+}
+
+/* --- damping command --- */
+
+static void brake_send_range(can_data_t *channel, uint8_t id_first, uint8_t id_last)
+{
+	/* nothing to do if the bus is not up (can_send would just fail) */
+	if (!can_is_enabled(channel)) {
+		return;
+	}
 
 	/*
-	 * CAN Tx/Rx LEDs: forced on while pressed. While released they revert to
-	 * the normal led_update() path (the main loop runs it only while released).
+	 * gs_host_frame's payload is a flexible array member, so build the frame in
+	 * a correctly sized gs_host_frame_object on the stack (never a bare
+	 * gs_host_frame, never a borrowed frame-pool buffer). can_send() copies into
+	 * the HW TX FIFO synchronously, so the stack object is fine.
 	 */
-	if (brake_engaged) {
-		brake_set_can_leds(true);
+	struct gs_host_frame_object tx = { 0 };
+	struct gs_host_frame *frame = &tx.frame;
+
+	frame->echo_id = 0xFFFFFFFF; /* not an echo of a host frame */
+	frame->can_dlc = 8;
+	frame->channel = can_channel_get_nr(channel);
+	frame->flags = 0;
+	for (uint8_t i = 0; i < 8; i++) {
+		frame->classic_can->data[i] = brake_motor_cmd[i];
+	}
+
+	for (uint8_t id = id_first; id <= id_last; id++) {
+		/* force-control frame: extended id EFF | (mode << 8) | motor_id */
+		frame->can_id = CAN_EFF_FLAG | (BRAKE_CAN_MODE << 8) | id;
+
+		uint32_t tries = BRAKE_SEND_TRIES;
+		while (!can_send(channel, frame) && --tries) {
+			/* TX FIFO full: spin until a slot frees or we give up */
+		}
 	}
 }
+
+static void brake_send_all(USBD_GS_CAN_HandleTypeDef *hcan)
+{
+	const uint8_t per = BRAKE_NUM_MOTORS / NUM_CAN_CHANNEL;
+
+	for (uint8_t ch = 0; ch < NUM_CAN_CHANNEL; ch++) {
+		uint8_t id_first = (uint8_t)(ch * per + 1);
+		uint8_t id_last = (ch == NUM_CAN_CHANNEL - 1) ?
+						  BRAKE_NUM_MOTORS : (uint8_t)((ch + 1) * per);
+
+		brake_send_range(&hcan->channels[ch], id_first, id_last);
+	}
+}
+
+/* --- API --- */
 
 void brake_init(void)
 {
 	brake_debounce = 0;
 	brake_engaged = brake_input_pressed();
-	brake_apply();
+	brake_apply_leds();
 }
 
 bool brake_is_engaged(void)
@@ -114,7 +216,7 @@ bool brake_is_engaged(void)
 	return brake_engaged;
 }
 
-void brake_task(void)
+void brake_task(USBD_GS_CAN_HandleTypeDef *hcan)
 {
 	bool pressed = brake_input_pressed();
 
@@ -123,14 +225,28 @@ void brake_task(void)
 		if (++brake_debounce >= BRAKE_DEBOUNCE_SAMPLES) {
 			brake_debounce = 0;
 			brake_engaged = pressed;
+
+			if (brake_engaged) {
+				/* engage edge: brake immediately, then hold */
+				brake_send_all(hcan);
+				brake_next_send = HAL_GetTick() + BRAKE_RESEND_MS;
+			}
 		}
 	} else {
 		brake_debounce = 0;
 	}
 
-	/* apply every iteration (idempotent) so the idle "CAN LEDs on" override is
-	 * robust against the start-up LED pattern and needs no edge bookkeeping */
-	brake_apply();
+	brake_apply_leds();
+
+	/* hold the damping command alive while pressed (MIT watchdog safety) */
+	if (brake_engaged && BRAKE_RESEND_MS) {
+		uint32_t now = HAL_GetTick();
+
+		if ((int32_t)(now - brake_next_send) >= 0) {
+			brake_send_all(hcan);
+			brake_next_send = now + BRAKE_RESEND_MS;
+		}
+	}
 }
 
 #endif /* CONFIG_BRAKE */
