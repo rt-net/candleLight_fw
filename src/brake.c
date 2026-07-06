@@ -53,22 +53,16 @@
 #define BRAKE_PRESSED_STATE GPIO_PIN_SET
 #endif
 
-/* --- motor damping command (T-Motor AK-series V3, MIT "Force Control" mode) ---
+/* --- motor MIT-mode damping command (RS02 / RobStride) ------------------------
  *
- * Extended CAN id = CAN_EFF_FLAG | (mode << 8) | motor_id, mode 8 = force
- * control. The 8-byte payload packs KP(12) KD(12) Pos(16) Speed(12) Torque(12).
- * The default below encodes KP=0, KD=MAX, Pos=Speed=Torque=0 -> pure max-damping
- * brake (tau = -Kd*v). Range-independent, verified against the CubeMars manual
- * (4.2 Force Control) and the quadruped_control TmotorV3 driver.
+ * RS02 MIT protocol (manual ch.6.5 "MIT Dynamic Parameters"): STANDARD 11-bit
+ * frame, CAN id = motor id (mode-type 0). The 8-byte payload packs
+ * pos(16) speed(12) Kp(12) Kd(12) torque(12); the values below are
+ * pos=0, speed=0, Kp=0, Kd=5.0(max), torque=0 -> pure max-damping brake
+ * (tau = -Kd*v). Range-independent (0 -> mid-scale, Kd -> full-scale).
  */
-#ifndef BRAKE_MOTOR_CMD
-#define BRAKE_MOTOR_CMD { 0x00, 0x0F, 0xFF, 0x7F, 0xFF, 0x7F, 0xF7, 0xFF }
-#endif
-
-/* Force-control mode id in the extended CAN id. */
-#ifndef BRAKE_CAN_MODE
-#define BRAKE_CAN_MODE 8
-#endif
+#define BRAKE_MOTOR_CMD  { 0x7F, 0xFF, 0x7F, 0xF0, 0x00, 0xFF, 0xF7, 0xFF }
+#define BRAKE_CAN_ID(id) ((uint32_t)(id))
 
 /*
  * Total motors (CAN ids 1..N), split evenly over the CAN channels:
@@ -179,8 +173,7 @@ static void brake_send_range(can_data_t *channel, uint8_t id_first, uint8_t id_l
 	}
 
 	for (uint8_t id = id_first; id <= id_last; id++) {
-		/* force-control frame: extended id EFF | (mode << 8) | motor_id */
-		frame->can_id = CAN_EFF_FLAG | (BRAKE_CAN_MODE << 8) | id;
+		frame->can_id = BRAKE_CAN_ID(id);
 
 		uint32_t tries = BRAKE_SEND_TRIES;
 		while (!can_send(channel, frame) && --tries) {
