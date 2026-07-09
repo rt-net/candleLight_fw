@@ -66,5 +66,11 @@ static inline u8 can_channel_get_nr(const can_data_t __maybe_unused *channel)
 #endif
 
 void CAN_SendFrame(USBD_GS_CAN_HandleTypeDef *hcan, can_data_t *channel);
+/*
+ * Remove all host-originated frames waiting for this CAN channel without
+ * transmitting them. Each discarded frame is echoed to the USB host so gs_usb
+ * can release its TX context instead of stalling while the E-STOP is active.
+ */
+void CAN_DiscardPendingTxFrames(USBD_GS_CAN_HandleTypeDef *hcan, can_data_t *channel);
 void CAN_ReceiveFrame(USBD_GS_CAN_HandleTypeDef *hcan, can_data_t *channel);
 void CAN_HandleError(USBD_GS_CAN_HandleTypeDef *hcan, can_data_t *channel);
