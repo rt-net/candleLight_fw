@@ -71,10 +71,10 @@
  *     [6:8] Kd     in [0,     5.0 ]
  *   torque (in [-17,17]) rides in the id's opt field, NOT the payload.
  *
- * Damping brake = angle=0, speed=0, Kp=0, Kd=3.5, torque=0
+ * Damping brake = angle=0, speed=0, Kp=0, Kd=2.0, torque=0
  *   -> tau = Kp*(0-p) + Kd*(0-v) + 0 = -Kd*v  (pure velocity damping).
  * uint = (x-min)*65535/(max-min): symmetric field 0 -> 0x7FFF, Kp=0 -> 0x0000,
- * torque=0 -> opt 0x7FFF. Kd=3.5 of the 0..5.0 range is encoded as
+ * torque=0 -> opt 0x7FFF. Kd=2.0 of the 0..5.0 range is encoded as
  * floor(3.5/5.0*65535) = 0xB332. tau=-Kd*v reaches the 17 N.m limit above
  * ~4.9 rad/s.
  * Damping regenerates energy into the DC bus; the supply and
@@ -82,7 +82,7 @@
  * increased. The motor must already be enabled. The frame is re-sent every
  * BRAKE_RESEND_MS to maintain the command and feed a configured CAN watchdog.
  */
-#define BRAKE_MOTOR_CMD  { 0x7F, 0xFF, 0x7F, 0xFF, 0x00, 0x00, 0xB3, 0x32 }
+#define BRAKE_MOTOR_CMD  { 0x7F, 0xFF, 0x7F, 0xFF, 0x00, 0x00, 0x66, 0x66 }
 #define BRAKE_MOTIONCTRL 0x01u   /* Communication_Type_MotionControl */
 #define BRAKE_TORQUE_U16 0x7FFFu /* torque = 0 (mid of the +/-17 N.m range) */
 #define BRAKE_CAN_ID(id) \

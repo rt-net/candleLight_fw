@@ -41,7 +41,7 @@ void brake_init(void);
  * E-STOP is pressed this:
  *   - lights all CAN Tx/Rx LEDs and LED_BRAKE,
  *   - discards host-originated CAN TX requests so they cannot fight the brake,
- *   - sends the RS02 PRIVATE MotionControl damping command (Kp=0, Kd=3.5) to the motors,
+ *   - sends the RS02 PRIVATE MotionControl damping command (Kp=0, Kd=2.0) to the motors,
  *     distributed over the CAN channels (1 ch: ids 1..12; 2 ch: 1..6 and 7..12),
  *     and non-blockingly retries/repeats it every BRAKE_RESEND_MS.
  * Release is accepted only after BRAKE_RELEASE_DEBOUNCE_MS of stable input;
