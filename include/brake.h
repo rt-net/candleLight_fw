@@ -40,12 +40,14 @@ void brake_init(void);
  * Poll the E-STOP / BRAKE input (call once per main-loop iteration). While the
  * E-STOP is pressed this:
  *   - lights all CAN Tx/Rx LEDs and LED_BRAKE,
- *   - discards host-originated CAN TX requests so they cannot fight the brake,
- *   - sends the RS02 PRIVATE MotionControl damping command (Kp=0, Kd=2.0) to the motors,
+ *   - sends the RS02 PRIVATE MotionControl damping command (Kp=0, Kd=5.0) to the motors,
  *     distributed over the CAN channels (1 ch: ids 1..12; 2 ch: 1..6 and 7..12),
  *     and non-blockingly retries/repeats it every BRAKE_RESEND_MS.
- * Release is accepted only after BRAKE_RELEASE_DEBOUNCE_MS of stable input;
- * queued stop-period host frames are discarded before forwarding resumes.
+ * The brake is a one-shot latch: once pressed it stays engaged after the
+ * button is released; only a reset/power-cycle clears it.
+ * Host-frame discarding is disabled: host TX requests queue while engaged
+ * (the main loop skips forwarding) until the shared frame pool runs dry,
+ * after which the host sees ENOBUFS and CAN->host forwarding also starves.
  */
 void brake_task(USBD_GS_CAN_HandleTypeDef *hcan);
 

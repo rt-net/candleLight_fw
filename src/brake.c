@@ -71,18 +71,18 @@
  *     [6:8] Kd     in [0,     5.0 ]
  *   torque (in [-17,17]) rides in the id's opt field, NOT the payload.
  *
- * Damping brake = angle=0, speed=0, Kp=0, Kd=2.0, torque=0
+ * Damping brake = angle=0, speed=0, Kp=0, Kd=5.0, torque=0
  *   -> tau = Kp*(0-p) + Kd*(0-v) + 0 = -Kd*v  (pure velocity damping).
  * uint = (x-min)*65535/(max-min): symmetric field 0 -> 0x7FFF, Kp=0 -> 0x0000,
- * torque=0 -> opt 0x7FFF. Kd=2.0 of the 0..5.0 range is encoded as
- * floor(3.5/5.0*65535) = 0xB332. tau=-Kd*v reaches the 17 N.m limit above
- * ~4.9 rad/s.
+ * torque=0 -> opt 0x7FFF. Kd=5.0 (max of the 0..5.0 range) is encoded as
+ * 65535 = 0xFFFF. tau=-Kd*v reaches the 17 N.m limit above
+ * ~3.4 rad/s.
  * Damping regenerates energy into the DC bus; the supply and
  * bulk capacitance must be able to absorb it without overvoltage before Kd is
  * increased. The motor must already be enabled. The frame is re-sent every
  * BRAKE_RESEND_MS to maintain the command and feed a configured CAN watchdog.
  */
-#define BRAKE_MOTOR_CMD  { 0x7F, 0xFF, 0x7F, 0xFF, 0x00, 0x00, 0x66, 0x66 }
+#define BRAKE_MOTOR_CMD  { 0x7F, 0xFF, 0x7F, 0xFF, 0x00, 0x00, 0xFF, 0xFF }
 #define BRAKE_MOTIONCTRL 0x01u   /* Communication_Type_MotionControl */
 #define BRAKE_TORQUE_U16 0x7FFFu /* torque = 0 (mid of the +/-17 N.m range) */
 #define BRAKE_CAN_ID(id) \
@@ -259,13 +259,6 @@ static void brake_send_pending(USBD_GS_CAN_HandleTypeDef *hcan)
 	}
 }
 
-static void brake_discard_host_frames(USBD_GS_CAN_HandleTypeDef *hcan)
-{
-	for (uint8_t ch = 0; ch < NUM_CAN_CHANNEL; ch++) {
-		CAN_DiscardPendingTxFrames(hcan, &hcan->channels[ch]);
-	}
-}
-
 /* --- API --- */
 
 void brake_init(void)
@@ -294,36 +287,18 @@ void brake_task(USBD_GS_CAN_HandleTypeDef *hcan)
 {
 	const uint32_t now = HAL_GetTick();
 	const bool pressed = brake_input_pressed();
-	const bool was_engaged = brake_engaged;
 
-	if (pressed) {
-		/* Fail-safe engage: one pressed sample latches the damping state. */
-		brake_release_pending = false;
-		if (!brake_engaged) {
-			brake_engaged = true;
-			brake_schedule_all_channels(now);
-		}
-	} else if (brake_engaged) {
-		if (!brake_release_pending) {
-			brake_release_pending = true;
-			brake_release_since = now;
-		} else if ((uint32_t)(now - brake_release_since) >=
-				   BRAKE_RELEASE_DEBOUNCE_MS) {
-			brake_engaged = false;
-			brake_release_pending = false;
-			for (uint8_t ch = 0; ch < NUM_CAN_CHANNEL; ch++) {
-				brake_pending_mask[ch] = 0;
-			}
-		}
+	/*
+	 * One-shot latch: a single pressed sample engages the brake and it stays
+	 * engaged after the button is released -- the damping command keeps being
+	 * sent and host->CAN forwarding stays blocked until a reset/power-cycle.
+	 */
+	if (pressed && !brake_engaged) {
+		brake_engaged = true;
+		brake_schedule_all_channels(now);
 	}
 
 	if (brake_engaged) {
-		/*
-		 * Host commands must neither fight the damping command nor survive the
-		 * stop and run later. The discard helper still returns gs_usb echoes.
-		 */
-		brake_discard_host_frames(hcan);
-
 		/* Each CAN channel advances independently if another bus is down/full. */
 		for (uint8_t ch = 0; ch < NUM_CAN_CHANNEL; ch++) {
 			if (BRAKE_RESEND_MS && brake_pending_mask[ch] == 0 &&
@@ -335,9 +310,6 @@ void brake_task(USBD_GS_CAN_HandleTypeDef *hcan)
 		}
 
 		brake_send_pending(hcan);
-	} else if (was_engaged) {
-		/* Flush the final stop-period frames before host forwarding resumes. */
-		brake_discard_host_frames(hcan);
 	}
 
 	brake_apply_leds();
