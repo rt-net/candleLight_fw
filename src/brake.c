@@ -40,14 +40,6 @@
 /* --- E-STOP input --- */
 
 /*
- * Engagement is immediate. Release must remain stable for this long before the
- * damping command is stopped, so contact bounce cannot briefly release it.
- */
-#ifndef BRAKE_RELEASE_DEBOUNCE_MS
-#define BRAKE_RELEASE_DEBOUNCE_MS 50u
-#endif
-
-/*
  * PB5 level that means the E-STOP is pressed. Fail-safe normally-closed
  * (B-contact): released = LOW (contact ties BRAKE to GND), pressed / broken
  * wire / unplugged = HIGH (R11 pull-up). Override in config.h to invert.

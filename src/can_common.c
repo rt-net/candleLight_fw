@@ -96,39 +96,6 @@ void CAN_SendFrame(USBD_GS_CAN_HandleTypeDef *hcan, can_data_t *channel)
 	led_indicate_trx(&channel->leds, LED_TX);
 }
 
-void CAN_DiscardPendingTxFrames(USBD_GS_CAN_HandleTypeDef *hcan, can_data_t *channel)
-{
-	for (;;) {
-		bool was_irq_enabled = disable_irq();
-		struct gs_host_frame_object *frame_object =
-			list_first_entry_or_null(&channel->list_from_host,
-									 struct gs_host_frame_object,
-									 list);
-		if (!frame_object) {
-			restore_irq(was_irq_enabled);
-			return;
-		}
-
-		list_del(&frame_object->list);
-		restore_irq(was_irq_enabled);
-
-		/*
-		 * Complete the gs_usb echo without putting the frame on CAN. This
-		 * deliberately reports a consumed TX request: there is no per-frame
-		 * "rejected by E-STOP" status in the gs_usb protocol, and withholding
-		 * the echo would permanently consume the host's TX context.
-		 */
-		struct gs_host_frame *frame = &frame_object->frame;
-		frame->reserved = 0;
-		if (IS_ENABLED(CONFIG_CANFD) && frame->flags & GS_CAN_FLAG_FD)
-			frame->canfd_ts->timestamp_us = timer_get();
-		else
-			frame->classic_can_ts->timestamp_us = timer_get();
-
-		list_add_tail_locked(&frame_object->list, &hcan->list_to_host);
-	}
-}
-
 void CAN_ReceiveFrame(USBD_GS_CAN_HandleTypeDef *hcan, can_data_t *channel)
 {
 	struct gs_host_frame_object *frame_object;
