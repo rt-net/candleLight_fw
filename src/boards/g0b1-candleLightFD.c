@@ -64,6 +64,17 @@
 #define LED_Mode		  GPIO_MODE_OUTPUT_PP
 #define LED_Active_High	  1
 
+#ifdef CONFIG_BRAKE
+/* Wired E-STOP / BRAKE (PB5), wireless E-STOP / BRAKE_W (PB4, Mujina board only)
+ * and LED_BRAKE indicator (PB6) */
+#define BRAKE_GPIO_Port	   GPIOB
+#define BRAKE_Pin		   GPIO_PIN_5
+#define BRAKE_W_GPIO_Port  GPIOB
+#define BRAKE_W_Pin		   GPIO_PIN_4
+#define LEDBRAKE_GPIO_Port GPIOB
+#define LEDBRAKE_Pin	   GPIO_PIN_6
+#endif
+
 static void candlelightfd_setup(USBD_GS_CAN_HandleTypeDef *hcan)
 {
 	GPIO_InitTypeDef GPIO_InitStruct;
@@ -71,7 +82,7 @@ static void candlelightfd_setup(USBD_GS_CAN_HandleTypeDef *hcan)
 	UNUSED(hcan);
 
 	__HAL_RCC_GPIOA_CLK_ENABLE();
-#if NUM_CAN_CHANNEL == 2
+#if NUM_CAN_CHANNEL == 2 || defined(CONFIG_BRAKE)
 	__HAL_RCC_GPIOB_CLK_ENABLE();
 #endif
 	__HAL_RCC_GPIOD_CLK_ENABLE();
@@ -103,6 +114,32 @@ static void candlelightfd_setup(USBD_GS_CAN_HandleTypeDef *hcan)
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
 	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+#ifdef CONFIG_BRAKE
+	/* Wired BRAKE / E-STOP input PB5 (fail-safe N.C.: released=LOW, pressed=HIGH via R11) */
+	GPIO_InitStruct.Pin = BRAKE_Pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	HAL_GPIO_Init(BRAKE_GPIO_Port, &GPIO_InitStruct);
+
+	/* Wireless BRAKE_W / E-STOP input PB4 (Mujina board). Internal pull-down so a
+	 * board without the wireless circuit (bare candleLightFD) reads not-pressed;
+	 * on Mujina the external 10k pull-up + wireless module drive it. */
+	GPIO_InitStruct.Pin = BRAKE_W_Pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+	GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	HAL_GPIO_Init(BRAKE_W_GPIO_Port, &GPIO_InitStruct);
+
+	/* LED_BRAKE indicator PB6 (active high), off at start */
+	HAL_GPIO_WritePin(LEDBRAKE_GPIO_Port, LEDBRAKE_Pin, GPIO_PIN_RESET);
+	GPIO_InitStruct.Pin = LEDBRAKE_Pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	HAL_GPIO_Init(LEDBRAKE_GPIO_Port, &GPIO_InitStruct);
+#endif
 
 #if NUM_CAN_CHANNEL == 2
 	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_RESET);
@@ -174,6 +211,16 @@ const struct board_config config = {
 				.active_high = LED_Active_High,
 			},
 		},
+	},
+#endif
+#ifdef CONFIG_BRAKE
+	.brake = {
+		.button_port = BRAKE_GPIO_Port,
+		.button_pin = BRAKE_Pin,
+		.wl_button_port = BRAKE_W_GPIO_Port,
+		.wl_button_pin = BRAKE_W_Pin,
+		.led_port = LEDBRAKE_GPIO_Port,
+		.led_pin = LEDBRAKE_Pin,
 	},
 #endif
 };

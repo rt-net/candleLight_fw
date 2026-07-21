@@ -472,8 +472,12 @@ THE SOFTWARE.
 	#define TIM2_CLOCK_SPEED		 64000000
 
 	#define CAN_CLOCK_SPEED			 40000000
+	/* 2 CAN channels. The E-STOP brake splits motors evenly:
+	 * ch0(can0)=ids 1..6, ch1(can1)=ids 7..12. Motors on can1 must be configured
+	 * with ids 7..12 for the split to line up. Set to 1 if all motors are on can0. */
 	#define NUM_CAN_CHANNEL			 2
 	#define CONFIG_CANFD			 1
+	#define CONFIG_BRAKE			 1
 
 #elif defined(BOARD_nucleo_g0b1re)
 	#define USBD_PRODUCT_STRING_FS	 "NUCLEO-G0B1RE gs_usb"

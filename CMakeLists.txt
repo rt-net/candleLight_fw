@@ -76,6 +76,7 @@ set(
 	src/usbd_conf.c
 
 	include/board.h
+	include/brake.h src/brake.c
 	include/can.h
 	include/can_common.h src/can_common.c
 	include/device.h
