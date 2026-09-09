@@ -29,6 +29,7 @@ THE SOFTWARE.
 #include <stdlib.h>
 
 #include "board.h"
+#include "brake.h"
 #include "can.h"
 #include "can_common.h"
 #include "config.h"
@@ -90,6 +91,10 @@ int main(void)
 		can_disable(channel);
 	}
 
+#ifdef CONFIG_BRAKE
+	brake_init();
+#endif
+
 	USBD_Init(&hUSB, (USBD_DescriptorsTypeDef*)&FS_Desc, DEVICE_FS);
 	USBD_RegisterClass(&hUSB, &USBD_GS_CAN);
 	USBD_GS_CAN_Init(&hGS_CAN, &hUSB);
@@ -108,10 +113,19 @@ int main(void)
 	}
 
 	while (1) {
-		for (unsigned int i = 0; i < ARRAY_SIZE(hGS_CAN.channels); i++) {
-			can_data_t *channel = &hGS_CAN.channels[i];
+#ifdef CONFIG_BRAKE
+		brake_task(&hGS_CAN);
 
-			CAN_SendFrame(&hGS_CAN, channel);
+		/* while the E-STOP is engaged the firmware drives the motors (damping);
+		 * stop forwarding host frames so they do not fight the brake command */
+		if (!brake_is_engaged())
+#endif
+		{
+			for (unsigned int i = 0; i < ARRAY_SIZE(hGS_CAN.channels); i++) {
+				can_data_t *channel = &hGS_CAN.channels[i];
+
+				CAN_SendFrame(&hGS_CAN, channel);
+			}
 		}
 
 		USBD_GS_CAN_ReceiveFromHost(&hUSB);
@@ -123,7 +137,11 @@ int main(void)
 			CAN_ReceiveFrame(&hGS_CAN, channel);
 			CAN_HandleError(&hGS_CAN, channel);
 
+#ifndef CONFIG_BRAKE
+			/* on a brake board the CAN Tx/Rx LEDs are the E-STOP indicator,
+			 * driven by brake_task(); elsewhere show normal CAN activity */
 			led_update(&channel->leds);
+#endif
 		}
 
 		if (USBD_GS_CAN_DfuDetachRequested(&hUSB)) {
